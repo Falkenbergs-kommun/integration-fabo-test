@@ -1,0 +1,9 @@
+# Ignore real environment file with secrets
+.env
+
+# Ignore cached tokens
+tokens/
+
+# Ignore downloaded JSON responses
+responses/
+*.json
