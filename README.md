@@ -323,6 +323,49 @@ Efter synkronisering kan du se arbetsordrar i Directus:
 - `last_synced` visar när arbetsorden senast uppdaterades
 - Komplexdata (utförare, planering, ekonomi) är lagrad som JSON
 
+## Testning och felsökning
+
+### Test av API-endpoints
+
+Ett testscript finns för att verifiera tre kritiska FAST2 API-endpoints:
+
+```bash
+php test_utrymmen_enheter_upload.php
+```
+
+Scriptet testar:
+1. **Utrymmen (spaces/rooms)** - Hämtar alla utrymmen för ett objekt
+2. **Enheter (units)** - Hämtar alla enheter för ett utrymme
+3. **Filuppladdning** - Laddar upp en fil och får tillbaka ett temporärt fil-ID
+
+**Testresultat:**
+- ✅ Utrymmen: FUNGERAR - Returnerar fullständig data
+- ✅ Enheter: FUNGERAR - Returnerar fullständig data
+- ❌ Filuppladdning: FUNGERAR EJ - HTTP 500 fel (kontakta FAST2 support)
+
+Se [TEST_RESULTS.md](TEST_RESULTS.md) för detaljerade testresultat och diagnos.
+
+**Användning:**
+```bash
+# Test med default värden
+php test_utrymmen_enheter_upload.php
+
+# Test med specifika värden
+php test_utrymmen_enheter_upload.php [objektId] [utrymmesId] [filsökväg]
+
+# Exempel
+php test_utrymmen_enheter_upload.php 9120801 116488 testfiles/test-upload.txt
+```
+
+**Diagnos av Joomla-extension problem:**
+
+Om utrymmen och enheter inte sparas korrekt i Joomla-extensionen, beror detta INTE på API:et (som fungerar korrekt), utan sannolikt på:
+1. Formulärhantering i React-widgeten (ReportForm.jsx)
+2. Dataformat i work order payload
+3. Frontend state management för valda utrymmen/enheter
+
+Se TEST_RESULTS.md för detaljerad felsökningsguide.
+
 ## Nästa steg
 
 Efter att ha hämtat och synkroniserat data från FAST2 kan du:
