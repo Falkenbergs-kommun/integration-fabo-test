@@ -6,17 +6,26 @@ Testscripts för att testa FAST2 API-autentisering och datahämtning, samt synkr
 
 Detta projekt innehåller CLI-verktyg för att:
 - Hämta fastighetsdata från FAST2 API (Fabo's fastighetssystem)
-- Synkronisera fastigheter till Directus CMS
-- Underhålla en uppdaterad kopia av fastighetsdatabasen
+- Hämta arbetsordrar (felanmälningar och beställningar) från FAST2 API
+- Synkronisera fastigheter och arbetsordrar till Directus CMS
+- Underhålla uppdaterade kopior av fastighets- och arbetsorderdatabaser
 
 Projektet är utvecklat av Utvecklingsavdelningen på Falkenbergs kommun och används för att integrera FAST2-data med kommunens interna system.
 
 ## Filer i projektet
 
+### Fastigheter (Properties)
 - **fetch_fastigheter.php** - Hämtar fastigheter från FAST2 API och sparar som JSON
 - **sync_to_directus.php** - Synkroniserar fastigheter till Directus
-- **create_directus_collection.php** - Skapar Directus-tabellen första gången
+- **create_directus_collection.php** - Skapar Directus-tabellen för fastigheter
 - **fix_and_resync.php** - Återskapar Directus-tabellen och synkar om (vid problem)
+
+### Arbetsordrar (Work Orders)
+- **fetch_arbetsordrar.php** - Hämtar arbetsordrar från FAST2 API och sparar som JSON
+- **sync_arbetsordrar_to_directus.php** - Synkroniserar arbetsordrar till Directus
+- **create_directus_arbetsordrar_collection.php** - Skapar Directus-tabellen för arbetsordrar
+
+### Gemensamma filer
 - **DirectusClient.php** - Klass för Directus API-anrop
 - **.env** - Konfigurationsfil med API-credentials (ingår ej i git)
 - **.env.example** - Mall för konfigurationsfil
@@ -218,12 +227,109 @@ php fix_and_resync.php
 #### Problem: "403 Forbidden" vid skapande av kollektion
 Du behöver en admin-token i `.env`. Kontrollera att `DIRECTUS_API_TOKEN` har admin-behörighet för att skapa kollektioner och fält.
 
+## Arbetsordrar (Work Orders)
+
+Förutom fastigheter kan du också hämta och synkronisera arbetsordrar (felanmälningar och beställningar) från FAST2 API.
+
+### Hämta arbetsordrar
+
+```bash
+php fetch_arbetsordrar.php
+```
+
+Detta hämtar alla arbetsordrar för det konfigurerade kundnumret och sparar dem som JSON-fil (ex: `arbetsordrar_2026-01-09_134710.json`).
+
+Arbetsordrar inkluderar:
+- Felanmälningar (arbetsordertypKod: "F")
+- Beställningar (arbetsordertypKod: "G")
+- Information om utförare, anmälare, status, prioritet
+- Datum för registrering, beställning, utförande, etc.
+- Ekonomiinformation och planeringsdata
+
+**Obs**: Konfidentiella arbetsordrar (med `externtNr: "CONFIDENTIAL"`) filtreras automatiskt bort.
+
+### Setup för Directus - Arbetsordrar
+
+Kontrollera att `.env` innehåller Directus-konfiguration (samma som för fastigheter).
+
+### Skapa Directus-tabellen för arbetsordrar
+
+Första gången måste du skapa tabellen `fast2_arbetsordrar` i Directus:
+
+```bash
+php create_directus_arbetsordrar_collection.php
+```
+
+Detta skapar tabellen med 34 fält:
+- Grundläggande fält (ID, typ, status, prioritet)
+- Datumfält (registrerad, beställd, utförd, modifierad)
+- Beskrivningsfält (beskrivning, kommentar, anmärkning, åtgärd)
+- Relationer (objekt-ID, kund-ID, utförare, anmälare)
+- Komplexdata som JSON (bunt, planering, ekonomi, etc.)
+
+### Synkronisera arbetsordrar
+
+Efter att tabellen är skapad kan du synkronisera arbetsordrar:
+
+```bash
+php sync_arbetsordrar_to_directus.php
+```
+
+Eller med verbose mode:
+
+```bash
+php sync_arbetsordrar_to_directus.php -v
+```
+
+### Vad gör synkroniseringen?
+
+Scriptet:
+1. **Hämtar** alla arbetsordrar från FAST2 API (filtrerat på kundnummer)
+2. **Jämför** med befintliga arbetsordrar i Directus
+3. **Skapar** nya arbetsordrar som inte finns
+4. **Uppdaterar** befintliga arbetsordrar
+5. **Markerar inaktiva** (soft delete) arbetsordrar som inte längre finns i FAST2
+
+**Soft delete**: Arbetsordrar raderas aldrig permanent, utan markeras som `status=inactive` om de försvinner från FAST2 API.
+
+### Synkroniseringsstatistik - Arbetsordrar
+
+Efter synkronisering visas statistik:
+
+```
+╔════════════════════════════════════════════════════════════╗
+║  Synchronization Complete                                  ║
+╚════════════════════════════════════════════════════════════╝
+
+FAST2 Work Orders: 4
+Directus before sync: 0
+---
+Created: 4
+Updated: 0
+Marked inactive: 0
+---
+Total in Directus now: 4 (4 active, 0 inactive)
+Duration: 0.63s
+
+✅ Sync completed successfully!
+```
+
+### Verifiera i Directus - Arbetsordrar
+
+Efter synkronisering kan du se arbetsordrar i Directus:
+- URL: https://nav.utvecklingfalkenberg.se/admin/content/fast2_arbetsordrar
+- Alla fält från FAST2 API är tillgängliga
+- Status-fält visar om arbetsorder är aktiv eller inaktiv
+- `last_synced` visar när arbetsorden senast uppdaterades
+- Komplexdata (utförare, planering, ekonomi) är lagrad som JSON
+
 ## Nästa steg
 
-Efter att ha hämtat och synkroniserat fastigheterna kan du:
+Efter att ha hämtat och synkroniserat data från FAST2 kan du:
 
-1. Analysera JSON-strukturen för att förstå datamodellen
-2. Implementera fler endpoints (t.ex. utrymmen, arbetsordrar)
-3. Testa olika filter och parametrar
-4. Skapa relationer i Directus mellan fastigheter och andra data
-5. Bygga applikationer som använder fastighetsdata från Directus
+1. **Analysera datamodellen** - Studera JSON-strukturen för att förstå relationerna mellan fastigheter och arbetsordrar
+2. **Skapa relationer** - Koppla samman arbetsordrar med fastigheter i Directus via objekt_id
+3. **Utöka med fler endpoints** - Implementera hämtning av utrymmen, enheter, etc.
+4. **Automatisera synkronisering** - Sätt upp cron-jobb för regelbunden synk
+5. **Bygga applikationer** - Använd Directus API för att visa fastighets- och arbetsorderdata i webbapplikationer
+6. **Rapportering** - Skapa rapporter och dashboards baserat på synkroniserad data
