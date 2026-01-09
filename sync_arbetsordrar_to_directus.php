@@ -63,7 +63,9 @@ function transformWorkOrderToDirectusFormat($workOrder)
         'datum_utford' => isset($workOrder['utford']['datumUtford'])
             ? convertFast2Date($workOrder['utford']['datumUtford'])
             : null,
-        'datum_modifierad' => $workOrder['modifierad']['datumModifierad'] ?? null,
+        'datum_modifierad' => isset($workOrder['modifierad']['datumModifierad'])
+            ? sanitizeTimestamp($workOrder['modifierad']['datumModifierad'])
+            : null,
 
         // Performer (utförare)
         'utforare_id' => $workOrder['utforare']['id'] ?? null,
@@ -112,6 +114,42 @@ function convertFast2Date($dateString)
     }
 
     return $dateString;
+}
+
+/**
+ * Sanitize timestamp - fix malformed FAST2 timestamps
+ * Example: "2026-01-09T12:00:773+0000" -> "2026-01-09T12:00:00"
+ */
+function sanitizeTimestamp($timestamp)
+{
+    if (empty($timestamp) || $timestamp === null) {
+        return null;
+    }
+
+    try {
+        // Try to parse with DateTime - if it fails, fix common issues
+        $dt = @new DateTime($timestamp);
+        if ($dt !== false) {
+            return $dt->format('Y-m-d H:i:s');
+        }
+    } catch (Exception $e) {
+        // Continue to fix malformed timestamp
+    }
+
+    // Fix malformed milliseconds like "12:00:773" -> "12:00:00"
+    // Pattern: YYYY-MM-DDTHH:MM:XXX+ZZZZ where XXX has 3+ digits
+    if (preg_match('/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}):(\d{3,})([\+\-]\d{4})$/', $timestamp, $matches)) {
+        // Return without milliseconds and timezone
+        return str_replace('T', ' ', $matches[1]) . ':00';
+    }
+
+    // If still malformed, try to extract just date and time
+    if (preg_match('/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/', $timestamp, $matches)) {
+        return $matches[1] . ' ' . $matches[2] . ':00';
+    }
+
+    // Last resort - return null to avoid DB errors
+    return null;
 }
 
 /**

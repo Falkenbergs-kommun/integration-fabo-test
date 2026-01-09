@@ -54,6 +54,7 @@ class Fast2WorkOrderClient
     private $baseUrl;
     private $username;
     private $password;
+    private $kundId;
     private $kundNr;
     private $verbose;
 
@@ -68,6 +69,7 @@ class Fast2WorkOrderClient
         $this->baseUrl = $config['FAST2_BASE_URL'];
         $this->username = $config['FAST2_USERNAME'];
         $this->password = $config['FAST2_PASSWORD'];
+        $this->kundId = $config['KUND_ID'];
         $this->kundNr = $config['KUND_NR'];
         $this->verbose = $verbose;
     }
@@ -201,14 +203,17 @@ class Fast2WorkOrderClient
         // Build query string with filters
         $queryParams = [];
 
-        // Add default filters if not specified
-        if (!isset($filters['kundNr'])) {
-            $queryParams['kundNr'] = $this->kundNr;
-        }
+        // Add filters - merge defaults with provided filters
+        // Try kundId first (numeric customer ID) - this might give more results
+        $defaultFilters = [
+            'kundId' => $this->kundId,
+        ];
 
-        // Add any additional filters
-        foreach ($filters as $key => $value) {
-            $queryParams[$key] = $value;
+        // Merge provided filters with defaults (provided filters override defaults)
+        $queryParams = array_merge($defaultFilters, $filters);
+
+        if ($this->verbose) {
+            $this->log('   Using filters: ' . json_encode($queryParams));
         }
 
         $queryString = http_build_query($queryParams);
