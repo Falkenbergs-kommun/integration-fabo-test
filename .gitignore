@@ -7,3 +7,4 @@ tokens/
 # Ignore downloaded JSON responses
 responses/
 *.json
+*.log
