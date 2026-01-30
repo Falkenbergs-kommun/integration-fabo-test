@@ -248,6 +248,52 @@ Arbetsordrar inkluderar:
 
 **Obs**: Konfidentiella arbetsordrar (med `externtNr: "CONFIDENTIAL"`) filtreras automatiskt bort.
 
+### Hämta arbetsordrar för en specifik användare
+
+För att hämta arbetsordrar som tillhör en specifik användare baserat på e-postadress:
+
+```bash
+# Använd default e-postadress (tomas.bollingnilsson@falkenberg.se)
+php test_user_orders.php
+
+# Eller ange en specifik e-postadress
+php test_user_orders.php user@example.com
+```
+
+**Viktig information om filtrering:**
+
+FAST2 API:et stödjer **INTE** filtrering på e-postadress eller anmälarfält. Enligt API-dokumentationen (version 1.1) finns endast följande filterparametrar för `/v1/arbetsorder`:
+
+✅ **Stödda filter:**
+- `offset`, `limit` - Paginering
+- `objektId` - Filtrera på objektnummer
+- `kundNr` - Filtrera på kundnummer
+- `utforare` - Filtrera på utförare
+- `status` - Filtrera på status
+- `feltyp` - Filtrera på feltyp
+- `skapadEfter` - Filtrera på skapad efter datum
+- `modifieradEfter` - Filtrera på modifierad efter datum
+
+❌ **EJ stödda filter:**
+- E-postadress (`annanAnmalare.epostAdress`)
+- Anmälarnamn
+- Telefonnummer
+- Andra användarspecifika fält
+
+**Därför måste scriptet:**
+1. Hämta alla arbetsordrar från API:et (med `kundId` filter för att begränsa)
+2. Filtrera lokalt i PHP-kod på `annanAnmalare.epostAdress`
+
+Detta är den **enda möjliga metoden** och implementeras i `test_user_orders.php`.
+
+**Testa API-filtreringsmöjligheter:**
+
+```bash
+php test_api_filters.php
+```
+
+Detta script dokumenterar och testar alla tillgängliga filterparametrar enligt API-dokumentationen.
+
 ### Setup för Directus - Arbetsordrar
 
 Kontrollera att `.env` innehåller Directus-konfiguration (samma som för fastigheter).
@@ -324,6 +370,30 @@ Efter synkronisering kan du se arbetsordrar i Directus:
 - Komplexdata (utförare, planering, ekonomi) är lagrad som JSON
 
 ## Testning och felsökning
+
+### Test av användarspecifika arbetsordrar
+
+För att testa hämtning av arbetsordrar för en specifik användare:
+
+```bash
+# Hämta arbetsordrar för en e-postadress
+php test_user_orders.php user@example.com
+
+# Testa API-filtreringsmöjligheter
+php test_api_filters.php
+```
+
+**test_user_orders.php** demonstrerar:
+- Hur man hämtar arbetsordrar från FAST2 API
+- Lokal filtrering på `annanAnmalare.epostAdress`
+- Detaljerad visning av arbetsorderinformation
+- Statistik per status och typ
+
+**test_api_filters.php** dokumenterar:
+- Vilka query-parametrar FAST2 API stödjer
+- Begränsningar i API:ets filtreringsmöjligheter
+- Att e-postfiltrering INTE stöds av API:et
+- Praktiska tester av olika filterparametrar
 
 ### Test av API-endpoints
 
