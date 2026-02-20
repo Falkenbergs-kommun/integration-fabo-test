@@ -200,69 +200,79 @@ class Fast2WorkOrderClient
 
         $this->log('📋 Fetching work orders...');
 
-        // Build query string with filters
-        $queryParams = [];
-
-        // Add filters - merge defaults with provided filters
-        // Try kundId first (numeric customer ID) - this might give more results
+        // Base filters - merge defaults with provided filters
         $defaultFilters = [
             'kundId' => $this->kundId,
         ];
-
-        // Merge provided filters with defaults (provided filters override defaults)
-        $queryParams = array_merge($defaultFilters, $filters);
+        $baseParams = array_merge($defaultFilters, $filters);
 
         if ($this->verbose) {
-            $this->log('   Using filters: ' . json_encode($queryParams));
+            $this->log('   Using filters: ' . json_encode($baseParams));
         }
 
-        $queryString = http_build_query($queryParams);
-        $url = $this->baseUrl . '/ao-produkt/v1/arbetsorder';
-        if ($queryString) {
-            $url .= '?' . $queryString;
-        }
+        // Paginate through all results
+        $allWorkOrders = [];
+        $offset = 0;
+        $limit = 100;
+        $page = 1;
 
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Content-Type: application/json',
-            'Authorization: Bearer ' . $this->oauth2Token,
-            'X-Auth-Token: ' . $this->apiToken['access_token'],
-        ]);
+        do {
+            $queryParams = array_merge($baseParams, [
+                'limit'  => $limit,
+                'offset' => $offset,
+            ]);
 
-        if ($this->verbose) {
-            $this->log('   Sending work orders request to: ' . $url);
-        }
+            $url = $this->baseUrl . '/ao-produkt/v1/arbetsorder?' . http_build_query($queryParams);
 
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $error = curl_error($ch);
-        curl_close($ch);
+            if ($this->verbose) {
+                $this->log("   Page {$page}: {$url}");
+            }
 
-        if ($error) {
-            throw new Exception("Work orders request failed: {$error}");
-        }
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $this->oauth2Token,
+                'X-Auth-Token: ' . $this->apiToken['access_token'],
+            ]);
 
-        if ($httpCode !== 200) {
-            throw new Exception("Work orders request failed (HTTP {$httpCode}): {$response}");
-        }
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $error = curl_error($ch);
+            curl_close($ch);
 
-        $data = json_decode($response, true);
-        if ($data === null) {
-            throw new Exception('Failed to parse work orders response as JSON');
-        }
+            if ($error) {
+                throw new Exception("Work orders request failed: {$error}");
+            }
 
-        // The response is an array of work orders
-        $workOrders = $data;
+            if ($httpCode !== 200) {
+                throw new Exception("Work orders request failed (HTTP {$httpCode}): {$response}");
+            }
+
+            $batch = json_decode($response, true);
+            if ($batch === null) {
+                throw new Exception('Failed to parse work orders response as JSON');
+            }
+
+            $allWorkOrders = array_merge($allWorkOrders, $batch);
+
+            if ($this->verbose) {
+                $this->log("   Page {$page}: got " . count($batch) . " orders (total so far: " . count($allWorkOrders) . ")");
+            }
+
+            $offset += $limit;
+            $page++;
+
+        } while (count($batch) === $limit);
 
         // Filter out confidential work orders
-        $workOrders = array_filter($workOrders, function($order) {
+        $allWorkOrders = array_values(array_filter($allWorkOrders, function($order) {
             return !isset($order['externtNr']) || $order['externtNr'] !== 'CONFIDENTIAL';
-        });
+        }));
 
-        $this->log('✅ Successfully fetched ' . count($workOrders) . ' work orders');
+        $this->log('✅ Successfully fetched ' . count($allWorkOrders) . ' work orders');
 
-        return $workOrders;
+        return $allWorkOrders;
     }
 }
 

@@ -190,20 +190,28 @@ function main()
         $fast2WorkOrders = $fast2Client->fetchWorkOrders();
         echo "✅ Fetched " . count($fast2WorkOrders) . " work orders from FAST2\n\n";
 
-        // Step 2: Get existing work orders from Directus
+        // Step 2: Get existing work orders from Directus (paginated, id+status only)
         echo "🔄 Step 2/4: Fetching existing work orders from Directus...\n";
         $directus = new DirectusClient($config['DIRECTUS_API_URL'], $config['DIRECTUS_API_TOKEN'], $verbose);
-        $response = $directus->getItems('fast2_arbetsordrar', [], 10000);
-        $existingWorkOrders = $response['data'] ?? [];
-        echo "✅ Found " . count($existingWorkOrders) . " existing work orders in Directus\n\n";
 
-        // Build lookup map of existing work orders by ID
         $existingMap = [];
-        foreach ($existingWorkOrders as $wo) {
-            if (isset($wo['id'])) {
-                $existingMap[$wo['id']] = $wo;
+        $pageSize = 10000;
+        $offset = 0;
+
+        do {
+            $response = $directus->getItems('fast2_arbetsordrar', [], $pageSize, $offset, ['id', 'status']);
+            $batch = $response['data'] ?? [];
+            foreach ($batch as $wo) {
+                if (isset($wo['id'])) {
+                    $existingMap[$wo['id']] = $wo;
+                }
             }
-        }
+            $offset += $pageSize;
+        } while (count($batch) === $pageSize);
+
+        echo "✅ Found " . count($existingMap) . " existing work orders in Directus\n\n";
+
+        $existingCount = count($existingMap);
 
         // Step 3: Sync work orders
         echo "🔄 Step 3/4: Synchronizing work orders...\n";
@@ -223,9 +231,18 @@ function main()
                     $directus->updateItem('fast2_arbetsordrar', $id, $directusData);
                     $updated++;
                 } else {
-                    // Create new
-                    $directus->createItem('fast2_arbetsordrar', $directusData);
-                    $created++;
+                    // Create new - fall back to update if unique constraint hit
+                    try {
+                        $directus->createItem('fast2_arbetsordrar', $directusData);
+                        $created++;
+                    } catch (Exception $createEx) {
+                        if (strpos($createEx->getMessage(), 'RECORD_NOT_UNIQUE') !== false) {
+                            $directus->updateItem('fast2_arbetsordrar', $id, $directusData);
+                            $updated++;
+                        } else {
+                            throw $createEx;
+                        }
+                    }
                 }
 
                 // Mark as synced
@@ -267,13 +284,17 @@ function main()
 
         echo "✅ Marked {$inactivated} work orders as inactive\n\n";
 
-        // Get final counts
-        $response = $directus->getItems('fast2_arbetsordrar', [], 10000);
-        $allWorkOrders = $response['data'] ?? [];
-        $activeCount = count(array_filter($allWorkOrders, function($wo) {
-            return isset($wo['status']) && $wo['status'] === 'active';
-        }));
-        $inactiveCount = count($allWorkOrders) - $activeCount;
+        // Get final counts via aggregate API (no data transfer)
+        $countRows  = $directus->getItemCounts('fast2_arbetsordrar');
+        $activeCount   = 0;
+        $inactiveCount = 0;
+        $totalCount    = 0;
+        foreach ($countRows as $row) {
+            $n = (int) ($row['count'] ?? 0);
+            $totalCount += $n;
+            if (($row['status'] ?? '') === 'active')   $activeCount   = $n;
+            if (($row['status'] ?? '') === 'inactive') $inactiveCount = $n;
+        }
 
         // Summary
         $duration = round(microtime(true) - $startTime, 2);
@@ -284,13 +305,13 @@ function main()
         echo "╚════════════════════════════════════════════════════════════╝\n";
         echo "\n";
         echo "FAST2 Work Orders: " . count($fast2WorkOrders) . "\n";
-        echo "Directus before sync: " . count($existingWorkOrders) . "\n";
+        echo "Directus before sync: {$existingCount}\n";
         echo "---\n";
         echo "Created: {$created}\n";
         echo "Updated: {$updated}\n";
         echo "Marked inactive: {$inactivated}\n";
         echo "---\n";
-        echo "Total in Directus now: " . count($allWorkOrders) . " ({$activeCount} active, {$inactiveCount} inactive)\n";
+        echo "Total in Directus now: {$totalCount} ({$activeCount} active, {$inactiveCount} inactive)\n";
         echo "Duration: {$duration}s\n";
 
         if (count($errors) > 0) {

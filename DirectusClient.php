@@ -35,15 +35,21 @@ class DirectusClient
      * @param string $collection Collection name
      * @param array $filter Filter criteria (Directus format)
      * @param int $limit Maximum number of items to fetch
+     * @param int $offset Number of items to skip (for pagination)
+     * @param array $fields Specific fields to return (empty = all fields)
      * @return array Response data with 'data' key containing items
      * @throws Exception if request fails
      */
-    public function getItems($collection, $filter = [], $limit = 1000)
+    public function getItems($collection, $filter = [], $limit = 1000, $offset = 0, $fields = [])
     {
-        $params = ['limit' => $limit];
+        $params = ['limit' => $limit, 'offset' => $offset];
 
         if (!empty($filter)) {
             $params['filter'] = json_encode($filter);
+        }
+
+        if (!empty($fields)) {
+            $params['fields'] = implode(',', $fields);
         }
 
         $query = http_build_query($params);
@@ -420,6 +426,64 @@ class DirectusClient
         }
 
         return true;
+    }
+
+    /**
+     * GET aggregate counts grouped by a field (e.g. status)
+     *
+     * Uses Directus aggregate API to get item counts without fetching all data.
+     * Example result: [['status' => 'active', 'count' => 17000], ...]
+     *
+     * @param string $collection Collection name
+     * @param string $groupByField Field to group by (default: 'status')
+     * @return array Rows with groupBy field value and 'count'
+     * @throws Exception if request fails
+     */
+    public function getItemCounts($collection, $groupByField = 'status')
+    {
+        $params = [
+            'aggregate[count]' => '*',
+            'groupBy[]'        => $groupByField,
+        ];
+
+        $url = "{$this->baseUrl}/items/{$collection}?" . http_build_query($params);
+
+        if ($this->verbose) {
+            $this->log("   GET (aggregate): {$url}");
+        }
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $this->token,
+            'Content-Type: application/json'
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+
+        if ($error) {
+            throw new Exception("Directus aggregate GET failed: {$error}");
+        }
+
+        if ($httpCode !== 200) {
+            throw new Exception("Directus aggregate GET failed (HTTP {$httpCode}): {$response}");
+        }
+
+        $data = json_decode($response, true);
+
+        if (!isset($data['data'])) {
+            throw new Exception("Invalid Directus aggregate response: missing 'data' key");
+        }
+
+        // Normalize: rename 'count(*)' key to 'count'
+        return array_map(function ($row) {
+            $row['count'] = (int) ($row['count'] ?? $row['count(*)'] ?? 0);
+            unset($row['count(*)']);
+            return $row;
+        }, $data['data']);
     }
 
     /**
